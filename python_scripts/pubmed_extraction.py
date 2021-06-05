@@ -23,6 +23,8 @@ import requests
 from bs4 import BeautifulSoup
 import pandas as pd 
 import sys 
+import re
+
 
 
 
@@ -51,6 +53,12 @@ def get_size(obj, seen=None):
 
 
 
+def cleaner_conflictdata_exists(row):
+    if row['conflict_data_response'] == "":
+        val = 'No'
+    else:
+        val = 'Yes'
+    return val
 
 
 ##
@@ -212,6 +220,113 @@ output_articles = pd.DataFrame(array_items, columns=['article_title', 'authors_f
 
 
 
+### Related to the CONFLICT OF INTEREST ARTICLE IDEA: 
+### For each of the rows within output_articles, go to the URL / use the soup thing, 
+### and then get the conflict of interest piece pulled out 
+
+output_articles = output_articles.sample(1)
+
+
+output_article_metadata_df = []
+output_article_metadata_nondf = []
+
+for i in range(len(output_articles)):
+        
+    df_row = output_articles.iloc[i]
+    df_row_url = df_row['article_url']
+    df_row_href = df_row['href']
+    
+    url = df_row_url
+    resp = requests.get(url)
+    soup = BeautifulSoup(resp.content, 'html.parser')
+    
+    
+    
+    citation_date = soup.find("meta", {"name":"citation_date"})['content']
+    citation_journal_title = soup.find("meta", {"name":"citation_journal_title"})['content']
+
+
+    
+    conflict = soup.find_all(['div'], class_="statement")    
+    conflict_value = []
+    for i in conflict:
+        value_extract = i.find('p').text
+        conflict_value.append(value_extract)
+    conflict_value_string = ' '.join(map(str, conflict_value))
+    
+    
+    abstract = soup.find(['div'], class_="abstract-content selected")
+    if abstract is None:
+        abstract = 'None found'
+    else:
+        abstract = soup.find(['div'], class_="abstract-content selected").text
+        abstract = abstract.lstrip()
+        abstract = abstract.rstrip()
+
+    
+    
+    # details = soup.find_all(['div'], class_="abstract")
+    # # https://stackoverflow.com/questions/42096171/python-beautifulsoup-cant-match-a-tag-containing-specific-text
+    # details_keywords = soup.findAll('strong', text = re.compile("Keywords:"))
+    # details_keywords = soup.findAll('p')
+    # # details_pattern = re.compile(r'keyword')
+    # # details_keywords = details.find(text=details_pattern, class_='strong')
+
+    
+    affiliation = soup.find_all(['div'], class_="affiliations")
+    affiliation_value = []
+    for i in affiliation:
+        value_extract = i.findAll('li')
+        records = []
+        for elem in value_extract:
+            records.append(elem.text.strip())
+        df = pd.DataFrame(records,columns=['affiliation'])
+        affiliation_value.append(df)
+    affiliation_value = pd.concat(affiliation_value)
+    affiliation_value = affiliation_value.reset_index().drop(columns=['index']).drop_duplicates()
+
+    newdata = {'rowURL' : df_row_url, 'hrefID': df_row_href, 'citation_date': citation_date, 
+               'citation_journal_title': citation_journal_title, 
+               'conflict_data_response': conflict_value_string,
+                'abstract' : abstract,
+               'affiliations' : affiliation_value}
+    
+    newdata_df = pd.DataFrame.from_dict([newdata])
+
+    output_article_metadata_df.append(newdata_df)
+    output_article_metadata_nondf.append(newdata)
+
+    
+
+output_article_metadata_df = pd.concat(output_article_metadata_df)
+output_article_metadata_df['conflict_data_presence'] = output_article_metadata_df.apply(cleaner_conflictdata_exists, axis=1)
+output_article_metadata_df = output_article_metadata_df.drop(columns=['rowURL'])
+
+
+
+
+
+
+
+
+output_merge = (output_articles.merge(output_article_metadata_df, how='left', left_on='href', right_on='hrefID')).drop(columns=['hrefID'])
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -241,7 +356,7 @@ output_articles = pd.DataFrame(array_items, columns=['article_title', 'authors_f
 #     pubmed_items.append(value)
     
 
-# df_pubmed_items = pd.DataFrame(pubmed_items, columns=['title', 'article_id'])
+# output_titles = pd.DataFrame(pubmed_items, columns=['title', 'article_id'])
 
 
 
